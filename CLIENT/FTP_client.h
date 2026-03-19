@@ -1,6 +1,6 @@
 #ifndef FTP_CLIENT_H
 #define FTP_CLIENT_H
-
+#include "../csapp.h"
 
 #define PORT 2121
 #define NB_PROC 2    
