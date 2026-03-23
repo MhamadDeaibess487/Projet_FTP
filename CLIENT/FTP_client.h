@@ -16,4 +16,11 @@ typedef struct{
     char filename[MAXLINE];
 }request_t;
 
+typedef struct{
+    int status;
+    int file_size;
+}response_t;
+
+
+void response(int clientfd, char *filename);
 #endif
