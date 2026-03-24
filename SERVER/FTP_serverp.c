@@ -7,8 +7,6 @@
 
 #define MAX_NAME_LEN 256
 
-void echo(int connfd);
-
 pid_t tab[NPROC];
 
 void sigchld_handler(int sig){
@@ -18,11 +16,13 @@ void sigint_handler(int sig)
 {
     for (int i = 0; i < NPROC; i++) {
         Kill(tab[i], SIGINT);
+        
     }
     while (wait(NULL) > 0)
         ;
     exit(0);
 }
+
 /* 
  * Note that this code only works with IPv4 addresses
  * (IPv6 is not supported)
@@ -74,40 +74,11 @@ int main(int argc, char **argv)
         pid = Fork();
         
         if(pid == 0){
-
+          
             while (1) {
 
                 clientlen = sizeof(clientaddr);
                 connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-
-                request_t req;
-                response_t res;
-                struct stat statbuf;
-
-                //Rio_readinitb(&rio, connfd);
-                if (Rio_readn(connfd, &req, sizeof(request_t)) <= 0){
-                    Close(connfd);
-                    continue;
-                }
-
-                //char buf[MAXLINE];
-                //ssize_t n = Rio_readlineb(&rio, buf, MAXLINE);
-                /*
-                if (n > 0) {
-                    buf[n] = '\0';
-                    printf("Le client a envoyé : %s\n", buf);
-                }
-
-                FILE *fp = fopen(buf, "r");
-                if (fp == NULL) {
-                    fprintf(stderr, "Erreur : impossible d'ouvrir le fichier %s\n", buf);
-                    Close(connfd);
-                    continue;
-                }
-
-                file_send(MAXBUF,connfd);//pas complete
-                fclose(fp);
-                */
                 
                 /* determine the name of the client */
                 Getnameinfo((SA *) &clientaddr, clientlen,
@@ -119,37 +90,63 @@ int main(int argc, char **argv)
                 
                 printf("server connected to %s (%s)\n", client_hostname,
                     client_ip_string);
+                //Rio_readinitb(&rio, connfd);
+                request_t req;
+                response_t res;
+                struct stat statbuf;
+                while (Rio_readn(connfd, &req, sizeof(request_t)) > 0){
                 
                 
-
+                
                 //cas ou il y a erreur -> status pas bon
                 if (stat(req.filename, &statbuf) < 0) {
                     res.status = -1; 
                     res.file_size = 0;
-                    Rio_writen(connfd, &res, sizeof(response_t));
-                    Close(connfd);
+                    Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
+                    
                     continue;
                 }
 
-                //cas ou y a pas derrers -> status bon
-                res.status = 0;
-                res.file_size = statbuf.st_size;
-                Rio_writen(connfd, &res, sizeof(response_t));
-
-                //remplir un buffer le contenu du fichier
                 char *file_mem = malloc(statbuf.st_size);
-                FILE *fp = fopen(req.filename, "rb"); 
-                if (fp) {
-                    fread(file_mem, 1, statbuf.st_size, fp);
-                    fclose(fp);
-                    file_send(connfd, file_mem, statbuf.st_size);
+                if(!file_mem){
+                    res.status=-3;
+                    Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
+                    continue;
                 }
 
+              
+                
+                //remplir un buffer le contenu du fichier
+                FILE *fp = fopen(req.filename, "rb");
+                if(!fp){
+                    printf("probleme avec l'ouverture du fichier\n");
+                    res.status=-5;
+                    Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
+                    free(file_mem);
+                    continue;
+                }
+                size_t n =fread(file_mem, 1, statbuf.st_size, fp);
+                if(n!=statbuf.st_size){
+                    printf("probleme de lecture du fichier\n");
+                    res.status =-4;
+                    Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
+                    Fclose(fp);
+                    free(file_mem);
+                    continue;
+                }
+                  //cas ou y a pas derrers -> status bon
+                res.status=0;
+                res.file_size = statbuf.st_size;
+                Rio_writen(connfd, &res, sizeof(response_t));
+                fclose(fp);
+                file_send(connfd, file_mem, statbuf.st_size);
                 free(file_mem);
-                Close(connfd);
-                
-                
             }
+                Close(connfd);
+                continue;
+            }
+                
+            
         }else{
             tab[i] = pid;
         }
