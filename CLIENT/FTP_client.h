@@ -4,6 +4,7 @@
 
 #define PORT 2121
 #define NB_PROC 2    
+#define Block 55555
 
 typedef enum{
     GET=1,
@@ -20,6 +21,7 @@ typedef struct{
     int status;
     int file_size;
 }response_t;
+
 
 
 void response(int clientfd, char *filename);

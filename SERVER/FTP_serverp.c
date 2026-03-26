@@ -44,6 +44,7 @@ int file_send(size_t size,int connfd){
 */
 
 void file_send(int connfd, char *file_mem, size_t size) {
+    
     Rio_writen(connfd, file_mem, size);
 }
 
@@ -119,15 +120,15 @@ int main(int argc, char **argv)
                 //remplir un buffer le contenu du fichier
                 FILE *fp = fopen(req.filename, "rb");
                 if(!fp){
-                    printf("probleme avec l'ouverture du fichier\n");
+                    
                     res.status=-5;
                     Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
                     free(file_mem);
                     continue;
                 }
-                size_t n =fread(file_mem, 1, statbuf.st_size, fp);
+                size_t n =fread(file_mem, 1, statbuf.st_size, fp); //ajouter -1 au st_size pour tester cette erreur
                 if(n!=statbuf.st_size){
-                    printf("probleme de lecture du fichier\n");
+                   
                     res.status =-4;
                     Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
                     Fclose(fp);
