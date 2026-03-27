@@ -16,16 +16,16 @@ all: $(CLIENT_BIN) $(SERVER_BIN)
 csapp.o: csapp.c csapp.h
 	$(CC) $(CFLAGS) $(INCLDIR) -c -o $@ $<
 
-CLIENT/FTP_client.o: CLIENT/FTP_client.c csapp.h CLIENT/FTP_client.h
+CLIENT/FTP_client.o: CLIENT/FTP_client.c csapp.h protocol_commun.h CLIENT/FTP_client.h 
 	$(CC) $(CFLAGS) $(INCLDIR) -c -o $@ $<
 
-SERVER/FTP_serverp.o: SERVER/FTP_serverp.c csapp.h SERVER/FTP_serverp.h
+SERVER/FTP_serverp.o: SERVER/FTP_serverp.c csapp.h protocol_commun.h SERVER/FTP_serverp.h
 	$(CC) $(CFLAGS) $(INCLDIR) -c -o $@ $<
 
-$(CLIENT_BIN): CLIENT/FTP_client.o csapp.o
+$(CLIENT_BIN): CLIENT/FTP_client.o csapp.o 
 	$(CC) -o $@ $^ $(LDFLAGS) $(LIBS)
 
-$(SERVER_BIN): SERVER/FTP_serverp.o csapp.o
+$(SERVER_BIN): SERVER/FTP_serverp.o csapp.o 
 	$(CC) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 clean:

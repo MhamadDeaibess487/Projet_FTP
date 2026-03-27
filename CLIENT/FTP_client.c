@@ -1,6 +1,6 @@
 #include "FTP_client.h"
 #include <stdio.h>
-
+#include <errno.h>
 /*
  * echoclient.c - An echo client
  */
@@ -9,78 +9,95 @@
 
 void response(int clientfd, char *filename) {
     response_t res;
-    double speed;
-    struct timespec start, end;
-
-    // on recoit la reponse 
-    if (Rio_readn(clientfd, &res, sizeof(response_t)) <= 0) {
-        printf("Error: Connection lost\n");
-        return;
-    }
-
-    if(res.status==-1){
-        printf("erreur : probleme dans le repere des stat du fichiers\n");
-        return;
-    }
-
-    if(res.status==-3){
-        printf("erreur : probleme d'allocation du buffer\n");
-        return;
-    }
-    if(res.status==-5){
-        printf("Erreur d'ouverture du fichier\n");
-        return;
-    }
-     if(res.status==-4){
-        printf("Erreur de lecture du fichier\n");
-        return;
-    }
-
-
-    // verifie le status
-    if (res.status < 0) {
-        printf("Erreur : le fichier '%s' n'existe pas sur le serveur\n", filename);
-        return;
-    }
-
+    double speed=0.0;
+    struct timeval start , end;
+    char *contenu_f_lu;
     
-    // prepa d'un fichier local pour stocker le contenu du fichier qu'on va lire 
-    FILE *fp = fopen(filename, "wb");
-    if (!fp) {
-        perror("Error opening local file");
-        return;
-    }
+    
+    
+    
+    ssize_t r;
+    size_t total = 0;
+    gettimeofday(&start, NULL);//on commence le temps
+     r = Rio_readn(clientfd, &res, sizeof(response_t));//on lit la reponse une premiere fois pour gere les erreurs
+        if(r<0){
+            printf("erreur de connexion au debut\n");
+            return;
+        }
+        printf("je lit du server %d\n",res.block_size);
 
-    // on prends en une fois l'integralite du contenu du fichier -> on l emet dans un buffer
-    char *contenu_f_lu = malloc(res.file_size);
-    if (!contenu_f_lu) {
-        fclose(fp);
-        return;
+        if(res.status==-3){
+            printf("erreur : probleme d'allocation du buffer\n");
+            return;
+        }
+      
+        if(res.status==-4){
+            printf("Erreur de lecture du fichier\n");
+            return;
+        }
+        
+        if (res.status == -2) {
+            printf("Erreur : le fichier '%s' n'existe pas sur le serveur\n", filename);
+            return;
+        }
+        if (r <= 0) {
+            printf("erreur de connexion\n");
+            printf("la\n");
+            return;
+        }
+        // prepa d'un fichier local pour stocker le contenu du fichier qu'on va lire 
+        
+        int fd = Open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd<0) {
+            perror("Erreur : ouverture du ficheir en local\n");
+            return;
+        }
+
+        // on prends un block
+        contenu_f_lu = malloc(Block);
+        if (!contenu_f_lu) {
+            Close(fd);
+            return;
+        }
+        
+    while (1) {
+        if (res.block_size == 0) {//fichier complet d'apres le protocol
+            break;
+        }
+
+        r = Rio_readn(clientfd, contenu_f_lu, res.block_size);//contenue du fichier
+        if (r <= 0) {//probleme
+            printf("erreur de connexion\n");
+            break;
+        }
+        Write(fd, contenu_f_lu, res.block_size);//ecrire dasn le fichier local
+        total += res.block_size;//calcul pour la taille
+        r = Rio_readn(clientfd, &res, sizeof(response_t));//continuer a lire la reponse du serveur pour bien gerer
+        if (r <= 0) {
+        printf("erreur de connexion\n");
+        break;
+    }
     }
     
+    gettimeofday(&end, NULL);
 
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    // on lit le contenu du fichier envoye par le serveur
-    ssize_t n = Rio_readn(clientfd, contenu_f_lu, res.file_size);
-    
-    clock_gettime(CLOCK_MONOTONIC, &end);
-
-    if (n > 0) {
-        // on ecrit dans le fichier qu'on a deja preparer le contuenu du fichier lu
-        fwrite(contenu_f_lu, 1, n, fp);
+    if (r > 0) {
+        
+        
         //on calcule en sec et nse  alors on les converti tous en sec
-        double t_ecoule = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1000000000.0;
+        double t_ecoule = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
         if(t_ecoule>0){
             
-            speed = (n / 1024.0) / t_ecoule;
+            speed = (total / 1024.0) / t_ecoule;
         }
         
         printf("Transfer successful\n");
-        printf("%ld bytes received in %f seconds (%f Kbytes/s).\n", (long)n, t_ecoule, speed);
+        printf("%ld bytes received in %f seconds (%f Kbytes/s).\n", (long)total, t_ecoule, speed);
+
     }
 
     free(contenu_f_lu);
-    fclose(fp);
+    Close(fd);
 }
 
 int main(int argc, char **argv)
@@ -136,11 +153,12 @@ int main(int argc, char **argv)
             }
             req.type = GET; 
             strncpy(req.filename, filename, 256);
-            
+            req.filename[255] = '\0';
             Rio_writen(clientfd, &req, sizeof(request_t));
             response(clientfd, filename);
+           
         } else {
-            printf("commande inconnue");
+            printf("commande inconnue\n");
         }
         
         printf("ftp> ");

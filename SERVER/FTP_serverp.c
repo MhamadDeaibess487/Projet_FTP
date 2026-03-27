@@ -2,8 +2,10 @@
  * echoserveri.c - An iterative echo server
  */
 
-#include "../csapp.h"
+
 #include "FTP_serverp.h"
+
+
 
 #define MAX_NAME_LEN 256
 
@@ -28,24 +30,58 @@ void sigint_handler(int sig)
  * (IPv6 is not supported)
  */
 
- // a bien implementer la fonction de transfert de fichier
- /*
-int file_send(size_t size,int connfd){
-    char buf[size];
-    for(size_t i=0;i<size;i++){
-       
-        
-        Rio_writen(connfd, buf, MAXBUF);
-        
+
+
+void file_send(int connfd,request_t req) {
+    size_t n;
+    response_t res;
+
+    char *file_mem = malloc(Block);
+    if(!file_mem){
+        res.status=-3;
+        res.block_size = 0;
+
+        Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
+        return;
     }
-    return 0;
 
-}
-*/
 
-void file_send(int connfd, char *file_mem, size_t size) {
     
-    Rio_writen(connfd, file_mem, size);
+    //remplir un buffer le contenu du fichier
+    int fp = open(req.filename,O_RDONLY,0);
+    if(fp<0){
+        
+        res.status=-2;
+        res.block_size = 0;
+
+        Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
+        free(file_mem);
+        return;
+    }
+
+    while((n = Read(fp,file_mem,Block))>0){// on envoi la taille du block 
+        printf("j'envoi %ld block\n",n);//on envoie le block
+        if(n<0){
+            res.status = -4;
+            res.block_size =0;
+            Rio_writen(connfd, &res, sizeof(response_t));
+        }
+        res.status =0;
+        res.block_size = n;
+        Rio_writen(connfd, &res, sizeof(response_t));
+        Rio_writen(connfd, file_mem,n);
+
+        
+    
+    }
+    
+
+    res.status=0;
+    res.block_size=0;
+    Rio_writen(connfd, &res, sizeof(response_t));//on envoi 0 pour indiquer la fin du fichier
+    
+    Close(fp);
+    free(file_mem);
 }
 
 
@@ -58,7 +94,9 @@ int main(int argc, char **argv)
     struct sockaddr_in clientaddr;
     char client_ip_string[INET_ADDRSTRLEN];
     char client_hostname[MAX_NAME_LEN];
-    //rio_t rio;
+    
+   
+    //rio_t *rio;
     //struct stat statbuf;
     Signal(SIGCHLD, sigchld_handler);
     Signal(SIGINT, sigint_handler);
@@ -91,57 +129,22 @@ int main(int argc, char **argv)
                 
                 printf("server connected to %s (%s)\n", client_hostname,
                     client_ip_string);
-                //Rio_readinitb(&rio, connfd);
                 request_t req;
-                response_t res;
-                struct stat statbuf;
-                while (Rio_readn(connfd, &req, sizeof(request_t)) > 0){
+                while (Rio_readn(connfd, &req, sizeof(request_t)) > 0){//tant qu'il ya encore des requetes a traiter
                 
                 
-                
-                //cas ou il y a erreur -> status pas bon
-                if (stat(req.filename, &statbuf) < 0) {
-                    res.status = -1; 
-                    res.file_size = 0;
-                    Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
                     
-                    continue;
-                }
+                    //cas ou il y a erreur -> status pas bon
+                    /*if (stat(req.filename, &statbuf) < 0) {
+                        res.status = -1; 
+                        res.block_size = 0;
+                        Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
+                        
+                        continue;
+                    }*/
 
-                char *file_mem = malloc(statbuf.st_size);
-                if(!file_mem){
-                    res.status=-3;
-                    Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
-                    continue;
-                }
+                    file_send(connfd,req);
 
-              
-                
-                //remplir un buffer le contenu du fichier
-                FILE *fp = fopen(req.filename, "rb");
-                if(!fp){
-                    
-                    res.status=-5;
-                    Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
-                    free(file_mem);
-                    continue;
-                }
-                size_t n =fread(file_mem, 1, statbuf.st_size, fp); //ajouter -1 au st_size pour tester cette erreur
-                if(n!=statbuf.st_size){
-                   
-                    res.status =-4;
-                    Rio_writen(connfd, &res, sizeof(response_t));//on envoi l'erreur
-                    Fclose(fp);
-                    free(file_mem);
-                    continue;
-                }
-                  //cas ou y a pas derrers -> status bon
-                res.status=0;
-                res.file_size = statbuf.st_size;
-                Rio_writen(connfd, &res, sizeof(response_t));
-                fclose(fp);
-                file_send(connfd, file_mem, statbuf.st_size);
-                free(file_mem);
             }
                 Close(connfd);
                 continue;
