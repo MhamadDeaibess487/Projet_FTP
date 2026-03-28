@@ -47,7 +47,7 @@ void response(int clientfd, char *filename) {
         }
         // prepa d'un fichier local pour stocker le contenu du fichier qu'on va lire 
         
-        int fd = Open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        int fd = Open(filename, O_WRONLY | O_CREAT | O_APPEND, 0644);
         if (fd<0) {
             perror("Erreur : ouverture du ficheir en local\n");
             return;
@@ -99,6 +99,9 @@ void response(int clientfd, char *filename) {
     free(contenu_f_lu);
     Close(fd);
 }
+
+
+
 
 int main(int argc, char **argv)
 {
@@ -154,6 +157,19 @@ int main(int argc, char **argv)
             req.type = GET; 
             strncpy(req.filename, filename, 256);
             req.filename[255] = '\0';
+
+            struct stat st;
+            //le cas ou on a deja ce fichier dans le repertoire client
+            if (stat(filename, &st) == 0) {
+                //on change dans la struct pour mettre la valeur de la size actuel du fichier dans offset
+                req.offset = st.st_size; 
+                printf("Fichier existant  interronpu (%ld octets) : reprise du transfert...\n", req.offset);
+            } else {
+                //on met offset a 0 si il y a pas le fichier deja pour faire un transfert normal
+                req.offset = 0; 
+            }
+
+
             Rio_writen(clientfd, &req, sizeof(request_t));
             response(clientfd, filename);
            
