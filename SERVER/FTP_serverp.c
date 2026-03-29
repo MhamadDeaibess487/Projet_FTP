@@ -1,19 +1,19 @@
 /*
- * echoserveri.c - An iterative echo server
+ * FTP_serverp.c 
  */
 
 
 #include "FTP_serverp.h"
-
-
-
 #define MAX_NAME_LEN 256
+
 
 pid_t tab[NPROC];
 
 void sigchld_handler(int sig){
     while (waitpid(-1, NULL, WNOHANG) > 0);
 }
+
+
 void sigint_handler(int sig)
 {
     for (int i = 0; i < NPROC; i++) {
@@ -24,6 +24,7 @@ void sigint_handler(int sig)
         ;
     exit(0);
 }
+
 
 /* 
  * Note that this code only works with IPv4 addresses
@@ -45,8 +46,6 @@ void file_send(int connfd,request_t req) {
         return;
     }
 
-
-    
     //remplir un buffer le contenu du fichier
     int fp = open(req.filename,O_RDONLY,0);
     if(fp<0){
@@ -59,8 +58,16 @@ void file_send(int connfd,request_t req) {
         return;
     }
 
+    //cas ou le client a crash, on peut continuer l'ecriture dans le fichier a partir de l'endroit ou on s'est arreter (indique dans la struct request)
+    if (req.offset > 0) {
+        lseek(fp, req.offset, SEEK_SET);
+        printf("[Fils %d] Reprise du transfert à %ld octets\n", getpid(), req.offset);
+    }
+
+
     while((n = Read(fp,file_mem,Block))>0){// on envoi la taille du block 
         printf("j'envoi %ld block\n",n);//on envoie le block
+        //sleep(2); //pour tester le crash du client
         if(n<0){
             res.status = -4;
             res.block_size =0;
@@ -70,12 +77,8 @@ void file_send(int connfd,request_t req) {
         res.block_size = n;
         Rio_writen(connfd, &res, sizeof(response_t));
         Rio_writen(connfd, file_mem,n);
-
-        
-    
     }
     
-
     res.status=0;
     res.block_size=0;
     Rio_writen(connfd, &res, sizeof(response_t));//on envoi 0 pour indiquer la fin du fichier
@@ -95,7 +98,6 @@ int main(int argc, char **argv)
     char client_ip_string[INET_ADDRSTRLEN];
     char client_hostname[MAX_NAME_LEN];
     
-   
     //rio_t *rio;
     //struct stat statbuf;
     Signal(SIGCHLD, sigchld_handler);
@@ -132,8 +134,6 @@ int main(int argc, char **argv)
                 request_t req;
                 while (Rio_readn(connfd, &req, sizeof(request_t)) > 0){//tant qu'il ya encore des requetes a traiter
                 
-                
-                    
                     //cas ou il y a erreur -> status pas bon
                     /*if (stat(req.filename, &statbuf) < 0) {
                         res.status = -1; 
