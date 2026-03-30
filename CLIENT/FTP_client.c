@@ -1,6 +1,5 @@
 #include "FTP_client.h"
-#include <stdio.h>
-#include <errno.h>
+
 /*
  * echoclient.c - An echo client
  */
@@ -19,25 +18,29 @@ void response(int clientfd, char *filename) {
     ssize_t r;
     size_t total = 0;
     gettimeofday(&start, NULL);//on commence le temps
-     r = Rio_readn(clientfd, &res, sizeof(response_t));//on lit la reponse une premiere fois pour gere les erreurs
+     r = rio_readn(clientfd, &res, sizeof(response_t));//on lit la reponse une premiere fois pour gere les erreurs
         if(r<0){
             printf("erreur de connexion au debut\n");
             return;
         }
         printf("je lit du server %d\n",res.block_size);
 
-        if(res.status==-3){
+        if(res.status==M){
             printf("erreur : probleme d'allocation du buffer\n");
             return;
         }
       
-        if(res.status==-4){
+        if(res.status==R){
             printf("Erreur de lecture du fichier\n");
             return;
         }
         
-        if (res.status == -2) {
+        if (res.status == O) {
             printf("Erreur : le fichier '%s' n'existe pas sur le serveur\n", filename);
+            return;
+        }
+        if(res.status==C){
+            printf("Erreur de connexion\n");
             return;
         }
         if (r <= 0) {
