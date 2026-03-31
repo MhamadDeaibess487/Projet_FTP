@@ -74,7 +74,7 @@ erreur_t file_send(int connfd,request_t req) {
 
 
     while((n = read(fp,file_mem,Block))>0){// on envoi la taille du block 
-        printf("j'envoi %ld block\n",n);//on envoie le block
+    
         //sleep(2); //pour tester le crash du client
        
         res.status =S;
@@ -120,7 +120,51 @@ erreur_t file_send(int connfd,request_t req) {
     return 0;
 }
 
-
+erreur_t lister_les_fichiers(int connfd,request_t req) {
+    response_t res;
+    ssize_t rc;
+    FILE *fp;
+    char buffer[MAXLINE];
+    if(req.options[0] != '\0') {
+        if(strcmp(req.options, "-l") == 0) {
+            fp = popen("ls -l", "r");
+        } else if(strcmp(req.options, "-a") == 0) {
+            fp = popen("ls -a", "r");
+        }else if(strcmp(req.options, "-la") == 0 || strcmp(req.options, "-al") == 0) {
+            fp = popen("ls -la", "r");
+        }
+    } else {
+        fp = popen("ls", "r");
+    }
+    if (fp == NULL) {
+        fprintf(stderr, "Erreur lors de l'exécution de la commande ls\n");
+        return M;
+    }
+    while (fgets(buffer, sizeof(buffer), fp) != NULL) {
+        res.status = S;
+        res.block_size = strlen(buffer);
+        rc = rio_writen(connfd, &res, sizeof(response_t));
+            if (rc < 0) {
+                fprintf(stderr, "Erreur lors de l'envoi de la réponse pour ls\n");
+                pclose(fp);
+                return C;
+            }
+        if ((rc = rio_writen(connfd, buffer, strlen(buffer))) < 0) {
+            fprintf(stderr, "Erreur lors de l'envoi de la liste des fichiers\n");
+            pclose(fp);
+            return C;
+        }
+    }
+    pclose(fp);
+        res.status = S;
+        res.block_size = 0; //indique la fin de la liste
+        rc = rio_writen(connfd, &res, sizeof(response_t));
+            if (rc < 0) {
+                fprintf(stderr, "Erreur lors de l'envoi de la réponse finale pour ls\n");
+                return C;
+            }
+    return S;
+}
 
 
 int main(int argc, char **argv)
@@ -130,7 +174,7 @@ int main(int argc, char **argv)
     struct sockaddr_in clientaddr;
     char client_ip_string[INET_ADDRSTRLEN];
     char client_hostname[MAX_NAME_LEN];
-    
+    int err = 0;//pour les erreurs
     //rio_t *rio;
     //struct stat statbuf;
     Signal(SIGCHLD, sigchld_handler);
@@ -182,22 +226,28 @@ int main(int argc, char **argv)
                         
                         continue;
                     }*/
-                    int err = 0;
-                    err = file_send(connfd,req);
-                    if(err==C){
-                        printf("Erreur lors de l'envoi du fichier, le client a peut-être coupé la connexion.\n");
-                        break;
-                    }
-                    if(err==R){
-                        printf("Erreur de lecture du fichier, le client a peut-être coupé la connexion.\n");
-                        continue;
-                    }
-                    if(err==M){
-                        printf("Erreur d'allocation du buffer, le client a peut-être coupé la connexion.\n");
-                        continue;
-                    }if(err==O){
-                        printf("Erreur : le fichier n'existe pas sur le serveur, le client a peut-être coupé la connexion.\n");
-                        continue;
+                    if(req.type == GET){
+                       
+                        err = file_send(connfd,req);
+                        if(err==C){
+                            printf("Erreur lors de l'envoi du fichier, le client a peut-être coupé la connexion.\n");
+                            break;
+                        }
+                        if(err==R){
+                            printf("Erreur de lecture du fichier, le client a peut-être coupé la connexion.\n");
+                            continue;
+                        }
+                        if(err==M){
+                            printf("Erreur d'allocation du buffer, le client a peut-être coupé la connexion.\n");
+                            continue;
+                        }if(err==O){
+                            printf("Erreur : le fichier n'existe pas sur le serveur, le client a peut-être coupé la connexion.\n");
+                            continue;
+                        }
+                    }else if(req.type == PUT){
+                        printf("la commande put n'est pas encore implementee\n");
+                    }else if(req.type == LS){
+                        err = lister_les_fichiers(connfd,req);
                     }
 
             }

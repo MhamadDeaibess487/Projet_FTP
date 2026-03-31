@@ -36,6 +36,7 @@ typedef struct{
     typereq_t type;
     char filename[MAXLINE];
     long offset;
+    char options[256]; //pour les options futures
 }request_t;
 
 typedef struct{
