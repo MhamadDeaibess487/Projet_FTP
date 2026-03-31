@@ -1,7 +1,7 @@
 #include "FTP_client.h"
 
 /*
- * echoclient.c - An echo client
+ * FTP_client.c
  */
 
 
@@ -119,19 +119,35 @@ int main(int argc, char **argv)
     host = argv[1];
 
 
-    /*
-     * Note that the 'host' can be a name or an IP address.
-     * If necessary, Open_clientfd will perform the name resolution
-     * to obtain the IP address.
-     */
-    clientfd = Open_clientfd(host, PORT);
+    printf("Connexion au Serveur Maitre (%s:%d)...\n", host, PORT_MASTER);
+    int masterfd = Open_clientfd(host, PORT_MASTER);
+    if (masterfd < 0) {
+        printf("Erreur : connection avec le serveur maitre impossible.\n");
+        exit(1);
+    }
+
+    //reception de l'information de redirection
+    redirect_t redir;
+
+    if (Rio_readn(masterfd, &redir, sizeof(redirect_t)) != sizeof(redirect_t)) {
+        printf("\nLe Serveur Maitre a rejete la connexion.\n");
+        printf("Raison probable : Tous les esclaves sont offline. Veuillez reessayer plus tard.\n\n");
+        Close(masterfd);
+        exit(1); 
+    }
     
-    /*
-     * At this stage, the connection is established between the client
-     * and the server OS ... but it is possible that the server application
-     * has not yet called "Accept" for this connection
-     */
-    printf("client connected to server OS\n"); 
+    //fermeture de la connection avec le maitre
+    Close(masterfd); 
+    printf("Redirection vers l'esclave %s:%d en cours...\n", redir.ip, redir.port);
+
+    //connection avec l'esclave
+    clientfd = Open_clientfd(redir.ip, redir.port);
+    if (clientfd < 0) {
+        printf("Erreur : connection impossible avec le serveur esclave sur %d.\n", redir.port);
+        exit(1);
+    }
+
+    printf("client connected to slave server OS\n");    
     
     Rio_readinitb(&rio, clientfd);
     int nb;

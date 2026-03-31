@@ -142,7 +142,13 @@ int main(int argc, char **argv)
     printf("Server is running ...\n");
     clientlen = (socklen_t)sizeof(clientaddr);
 
-    listenfd = Open_listenfd(PORT);
+    //verifie si le port de l'eclave est ecrit en argument
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <port_slave>\n", argv[0]);
+        exit(0);
+    }
+    int port_slave = atoi(argv[1]);
+    listenfd = Open_listenfd(port_slave);
    
    for(int i = 0; i < NPROC; i++){
         

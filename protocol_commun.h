@@ -51,6 +51,11 @@ typedef struct {
     int socket_fd;
 } slave_t;
 
+typedef struct {
+    char ip[16];
+    int port;
+} redirect_t;
+
 slave_t SLAVES[NB_SLAVES]; //tableau pour stocker les pid des esclaves
 
 
