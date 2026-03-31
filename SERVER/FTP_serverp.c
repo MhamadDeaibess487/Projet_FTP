@@ -133,6 +133,9 @@ erreur_t lister_les_fichiers(int connfd,request_t req) {
         }else if(strcmp(req.options, "-la") == 0 || strcmp(req.options, "-al") == 0) {
             fp = popen("ls -la", "r");
         }
+        else{
+            fp = popen("ls", "r");
+        }
     } else {
         fp = popen("ls", "r");
     }
@@ -167,8 +170,45 @@ erreur_t lister_les_fichiers(int connfd,request_t req) {
 }
 
 
-int main(int argc, char **argv)
-{
+erreur_t ecrire_dans_fichier(char *buffer, int taille, int fp) {
+    if (write(fp, buffer, taille) < 0) {
+        return R;
+    }
+    return S;
+}
+
+erreur_t propager_vers_esclave(request_t req,int port_courant) {
+    int connfd;
+    response_t res;
+    for(int i = 0; i < NB_SLAVES; i++) {
+        if(SLAVES[i].port == port_courant) {
+            continue; //ne pas propager vers soi meme
+        }
+        connfd = open_clientfd(SLAVES[i].ip, SLAVES[i].port);
+        if (connfd >= 0) {
+            if (rio_writen(connfd, &req, sizeof(request_t)) < 0) {//envoi al req
+                printf("Erreur lors de l'envoi de la requete au nouvel esclave.\n");
+                Close(connfd);
+                continue;
+            }
+            file_send(connfd, req);//envoi le fichier
+            if (rio_readn(connfd, &res, sizeof(response_t)) <= 0) {//recoit la reponse
+                printf("Erreur lors de la lecture de la reponse du nouvel esclave.\n");
+                Close(connfd);
+                continue;
+            }
+            
+            Close(connfd);
+            return res.status;
+        } else {
+            printf("Erreur de connection : esclave %d en panne\n", i);
+        }
+    }
+        return C; //si tous les esclaves sont en panne
+}
+
+
+int main(int argc, char **argv){
     int listenfd, connfd;
     socklen_t clientlen;
     struct sockaddr_in clientaddr;
@@ -193,15 +233,18 @@ int main(int argc, char **argv)
     }
     int port_slave = atoi(argv[1]);
     listenfd = Open_listenfd(port_slave);
-   
-   for(int i = 0; i < NPROC; i++){
+    for (int i = 0; i < NB_SLAVES; i++) {
+        strcpy(SLAVES[i].ip, "127.0.0.1");
+        SLAVES[i].port = PORT_SLAVE_BASE + i;
+    }
+    for(int i = 0; i < NPROC; i++){
         
         pid = Fork();
         
         if(pid == 0){
-          
+        
             while (1) {
-
+                
                 clientlen = sizeof(clientaddr);
                 connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
                 
@@ -217,7 +260,7 @@ int main(int argc, char **argv)
                     client_ip_string);
                 request_t req;
                 while (Rio_readn(connfd, &req, sizeof(request_t)) > 0){//tant qu'il ya encore des requetes a traiter
-                
+                    err = 0;
                     //cas ou il y a erreur -> status pas bon
                     /*if (stat(req.filename, &statbuf) < 0) {
                         res.status = -1; 
@@ -245,8 +288,92 @@ int main(int argc, char **argv)
                             continue;
                         }
                     }else if(req.type == PUT){
-                        printf("la commande put n'est pas encore implementee\n");
-                    }else if(req.type == LS){
+                        
+                       
+                        response_t res;
+                        char file_mem[Block];
+
+                        int fp = open(req.filename, O_WRONLY | O_CREAT| O_TRUNC, 0644);
+                        if (fp < 0) {
+                            printf("Erreur lors de l'ouverture du fichier pour PUT\n");
+                            continue;
+                        }
+
+                        while (Rio_readn(connfd, &res, sizeof(response_t)) > 0) {
+                            if (res.block_size == 0) {
+                                break;
+                            }
+
+                            if (Rio_readn(connfd, file_mem, res.block_size) <= 0) {
+                                printf("Erreur lors de la réception du contenu du fichier\n");
+                                err = C;
+                                break;
+                            }
+
+                            if (write(fp, file_mem, res.block_size) < 0) {
+                                printf("Erreur lors de l'écriture locale du fichier\n");
+                                err = R;
+                                break;
+                            }
+                        }
+
+                        close(fp);
+
+                        if (err == C) {
+                            printf("Erreur lors de la réception du fichier, le client a peut-être coupé la connexion.\n");
+                            continue;
+                        }
+                        res.status = S;
+                        res.block_size = 0;
+                        rio_writen(connfd, &res, sizeof(response_t));
+                        
+                        req.type = INT_PUT; //on change le type de la requete pour que les autres esclaves ne fassent pas de put dans le fichier mais juste une ecriture locale pour gerer la reprise d'un put apres un crash du client
+                        err = propager_vers_esclave(req,port_slave);
+                        if(err==C){
+                            printf("Erreur lors de la propagation du fichier vers les esclaves, tous les esclaves sont peut-être en panne.\n");
+                            continue;;
+                        }
+                    }
+                    else if(req.type == INT_PUT){
+                        response_t res;
+                        char file_mem[Block];
+
+                        int fp = open(req.filename, O_WRONLY | O_CREAT| O_TRUNC, 0644);
+                        if (fp < 0) {
+                            printf("Erreur lors de l'ouverture du fichier pour PUT\n");
+                            continue;
+                        }
+
+                        while (Rio_readn(connfd, &res, sizeof(response_t)) > 0) {
+                            if (res.block_size == 0) {
+                                break;
+                            }
+
+                            if (Rio_readn(connfd, file_mem, res.block_size) <= 0) {
+                                printf("Erreur lors de la réception du contenu du fichier\n");
+                                err = C;
+                                break;
+                            }
+
+                            if (write(fp, file_mem, res.block_size) < 0) {
+                                printf("Erreur lors de l'écriture locale du fichier\n");
+                                err = R;
+                                break;
+                            }
+                        }
+
+                        close(fp);
+
+                        if (err == C) {
+                            printf("Erreur lors de la réception du fichier, le client a peut-être coupé la connexion.\n");
+                            continue;
+                        }
+                        res.status = S;
+                        res.block_size = 0;
+                        rio_writen(connfd, &res, sizeof(response_t));
+                        continue;; //on ne propage pas vers les esclaves car c'est une requete interne pour gerer la reprise d'un put apres un crash du client
+                    }
+                    else if(req.type == LS){
                         err = lister_les_fichiers(connfd,req);
                     }
 

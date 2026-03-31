@@ -241,6 +241,12 @@ void response(int *clientfd, char *filename,char *host,request_t req) {
                 return;
             }
         }
+    }else if(req.type == PUT){
+        
+        if(res.status == S) {
+            printf("la commande put a etait execute \n");
+        }
+
     }
     
 }
@@ -366,7 +372,47 @@ int main(int argc, char **argv){
             req.options[0] = '\0';
             response(&clientfd, filename,host,req);//traitement de la reponse du serveur esclave
         }
-         
+        else if (strcmp(type , "put") == 0) {
+            if(nb != 2){
+                printf("manque le nom des fichiers\n");
+                printf("ftp> ");
+                continue;
+            }
+            req.type = PUT; 
+            strncpy(req.filename, filename, 256);
+            int fp = open(filename, O_RDONLY, 0644);
+            if (fp < 0) {
+                printf("Erreur lors de l'ouverture du fichier pour PUT\n");
+                continue;
+            }
+            req.filename[255] = '\0';
+            req.offset = 0; 
+            req.options[0] = '\0';
+            rio_writen(clientfd, &req, sizeof(request_t));
+            
+            char contenue_fichier[Block];
+            response_t res;
+            ssize_t n;
+            
+            while((n= read(fp, contenue_fichier, Block)) > 0) {
+                
+                res.status = S;
+                res.block_size = n;
+                if (rio_writen(clientfd, &res, sizeof(response_t)) < 0) {
+                    printf("Erreur lors de l'envoi de la reponse au serveur esclave.\n");
+                    break;
+                }
+                if (rio_writen(clientfd, contenue_fichier, res.block_size) < 0) {
+                    printf("Erreur lors de l'envoi du contenu du fichier au serveur esclave.\n");
+                    break;
+                }
+            }
+            Close(fp);
+            res.status = S;
+            res.block_size = 0;
+            rio_writen(clientfd, &res, sizeof(response_t)); // Indique la fin du fichier
+            response(&clientfd, filename,host,req);//traitement de la reponse du serveur esclave
+        }
         else {
             printf("commande inconnue\n");
         }

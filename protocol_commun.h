@@ -21,15 +21,19 @@
 typedef enum {
     C=-1,//connexion
     O=-5,//ouverture
-    R=-4,//reading
+    R=-4,//reading and writing
     M=-3,//allocation
     S= 0,//sucess
 }erreur_t;
 
 typedef enum{
     GET=1,
-    PUT,
     LS,
+    PUT,
+    INT_PUT,
+    RM,
+    INT_RM,
+
 }typereq_t;
 
 typedef struct{
@@ -55,6 +59,8 @@ typedef struct {
     char ip[16];
     int port;
 } redirect_t;
+
+
 
 slave_t SLAVES[NB_SLAVES]; //tableau pour stocker les pid des esclaves
 
