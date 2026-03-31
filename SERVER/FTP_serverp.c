@@ -207,6 +207,58 @@ erreur_t propager_vers_esclave(request_t req,int port_courant) {
         return C; //si tous les esclaves sont en panne
 }
 
+erreur_t effacer_fichier(request_t req,response_t *res) {
+
+    char command[MAXLINE + 10];
+    command[0] = '\0';
+    strcat(command, "rm ");
+    strcat(command, req.filename);
+    FILE *fp = popen(command, "r");
+    if (fp == NULL) {
+        res->status = R;
+    } else {
+        int ret = pclose(fp);
+        if (ret == 0) {
+            res->status = S;
+        } else {
+            res->status = R;
+        }
+        res->block_size = 0;
+        
+    }
+    return res->status;
+}
+
+erreur_t propager_vers_esclave_rm(request_t req,int port_courant) {
+    int connfd;
+    response_t res;
+    for(int i = 0; i < NB_SLAVES; i++) {
+        if(SLAVES[i].port == port_courant) {
+            continue; //ne pas propager vers soi meme
+        }
+        connfd = open_clientfd(SLAVES[i].ip, SLAVES[i].port);
+        if (connfd >= 0) {
+            if (rio_writen(connfd, &req, sizeof(request_t)) < 0) {//envoi al req
+                printf("Erreur lors de l'envoi de la requete au nouvel esclave.\n");
+                Close(connfd);
+                continue;
+            }
+            
+            if (rio_readn(connfd, &res, sizeof(response_t)) <= 0) {//recoit la reponse
+                printf("Erreur lors de la lecture de la reponse du nouvel esclave.\n");
+                Close(connfd);
+                continue;
+            }
+            
+            Close(connfd);
+            return res.status;
+        } else {
+            printf("Erreur de connection : esclave %d en panne\n", i);
+        }
+    }
+        return C; //si tous les esclaves sont en panne
+}
+
 
 int main(int argc, char **argv){
     int listenfd, connfd;
@@ -375,6 +427,27 @@ int main(int argc, char **argv){
                     }
                     else if(req.type == LS){
                         err = lister_les_fichiers(connfd,req);
+                    }
+                    else if(req.type == RM){
+                    response_t res;
+                    err = effacer_fichier(req, &res);
+                    rio_writen(connfd, &res, sizeof(response_t)); // toujours envoyer
+                    if (err == S) {
+                        req.type = INT_RM;
+                        propager_vers_esclave_rm(req, port_slave);
+                    }
+                }
+                    else if(req.type == INT_RM){
+                        response_t res;
+                    
+                        err = effacer_fichier(req, &res);
+                        
+                        rio_writen(connfd, &res, sizeof(response_t));
+                        
+                        continue;; //on ne propage pas vers les esclaves car c'est une requete
+                    }
+                    else{
+                        printf("Type de requete inconnu\n");
                     }
 
             }

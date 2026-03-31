@@ -413,6 +413,33 @@ int main(int argc, char **argv){
             rio_writen(clientfd, &res, sizeof(response_t)); // Indique la fin du fichier
             response(&clientfd, filename,host,req);//traitement de la reponse du serveur esclave
         }
+        else if(strcmp(type , "rm") == 0) {
+             if(nb != 2){
+                printf("manque le nom des fichiers\n");
+                printf("ftp> ");
+                continue;
+            }
+            req.type = RM; 
+            strncpy(req.filename, filename, 256);
+            response_t res;
+          
+            req.filename[255] = '\0';
+            req.offset = 0; 
+            req.options[0] = '\0';
+
+              res.status = S;
+             if (rio_writen(clientfd, &req, sizeof(request_t)) < 0) {
+                printf("Erreur lors de l'envoi de la requete au serveur esclave.\n");
+                continue;
+            }
+             if (rio_readn(clientfd, &res, sizeof(response_t)) <= 0) {
+                printf("Erreur lors de la lecture de la reponse du serveur esclave.\n");
+                continue;
+            }
+             if(res.status == S) {
+                printf("la commande rm a etait execute \n");
+             }
+        }
         else {
             printf("commande inconnue\n");
         }
