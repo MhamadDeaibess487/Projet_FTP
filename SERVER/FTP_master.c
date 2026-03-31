@@ -23,10 +23,11 @@ int main() {
         slaves[i].socket_fd = open_clientfd(slaves[i].ip, slaves[i].port);
         
         if (slaves[i].socket_fd >= 0) {
-            slaves[i].fonctionne = 1;
+            
             printf("Esclave %d connecte : Socket FD: %d)\n", i, slaves[i].socket_fd);
+            close(slaves[i].socket_fd); //ferme la connection de test avec l'esclave, le maitre se connectera a nouveau pour rediriger les clients
         } else {
-            slaves[i].fonctionne = 0;
+            
             printf("Erreur de connection : esclave en panne\n");
         }
     }
@@ -45,23 +46,16 @@ int main() {
 
         while (slaves_offline < NB_SLAVES) { 
             //si l'esclave est offline on reessaye de se connecte de nouveau
-            if (slaves[next_slave].fonctionne == 0) {
-                slaves[next_slave].socket_fd = open_clientfd(slaves[next_slave].ip, slaves[next_slave].port);
+            slaves[next_slave].socket_fd = open_clientfd(slaves[next_slave].ip, slaves[next_slave].port);
+
+            if (slaves[next_slave].socket_fd >= 0) {
                 
-                if (slaves[next_slave].socket_fd >= 0) {
-                    slaves[next_slave].fonctionne = 1;
-                    printf("L'esclave %d est de retour en ligne ! (Socket: %d)\n", next_slave, slaves[next_slave].socket_fd);
-                    esclave_trouve = 1;
-                    break; 
-                }
+                close(slaves[next_slave].socket_fd);  // on ferme le test
+                esclave_trouve = 1;
+                break;
             } 
 
-            else {
-                esclave_trouve = 1;
-                break; 
-            }
-
-            //cas ou l'esclave ne s'eat par reallumer
+            //cas ou l'esclave ne s'est par reallumer
             next_slave = (next_slave + 1) % NB_SLAVES; 
             slaves_offline++; 
         }

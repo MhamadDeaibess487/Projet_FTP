@@ -5,26 +5,95 @@
  */
 
 
+redirect_t  connection_maitre(char *host) {//on revinet au mettre pour se reconnecter
+     printf("Connexion au Serveur Maitre (%s:%d)...\n", host, PORT_MASTER);
+    int masterfd = Open_clientfd(host, PORT_MASTER);
+    if (masterfd < 0) {
+        printf("Erreur : connection avec le serveur maitre impossible.\n");
+        exit(1);
+    }
+    
+    //reception de l'information de redirection
+    redirect_t redir;
 
-void response(int clientfd, char *filename) {
+    if (Rio_readn(masterfd, &redir, sizeof(redirect_t)) != sizeof(redirect_t)) {
+        printf("\nLe Serveur Maitre a rejete la connexion.\n");
+        printf("Raison probable : Tous les esclaves sont offline. Veuillez reessayer plus tard.\n\n");
+        Close(masterfd);
+        exit(1); 
+    }
+    
+    //fermeture de la connection avec le maitre
+    Close(masterfd);
+    return redir;
+}
+
+//fonction pour se reconnecter a un autre esclave en cas de panne de celui avec lequel on etait connecte
+int reconnect_to_slave(int *clientfd, char *host, char *filename, request_t *req, response_t *res) { 
+    printf("Erreur de connexion avec le serveur esclave, tentative de reconnexion...\n");
+
+    redirect_t redir = connection_maitre(host);
+    printf("Redirection vers l'esclave %s:%d en cours...\n", redir.ip, redir.port);
+
+    if (*clientfd >= 0) {
+        Close(*clientfd);
+    }
+
+    *clientfd = Open_clientfd(redir.ip, redir.port);
+    if (*clientfd < 0) {
+        printf("Erreur : connection impossible avec le serveur esclave sur %d.\n", redir.port);
+        return -1;
+    }
+
+    struct stat st;//on recacule l'offset pour continuer a partir de la ou on s'est arreter
+    if (stat(filename, &st) == 0) {
+        req->offset = st.st_size;
+    } else {
+        req->offset = 0;
+    }
+
+    if (rio_writen(*clientfd, req, sizeof(request_t)) < 0) {
+        printf("Erreur lors de l'envoi de la requete au nouvel esclave.\n");
+        return -1;
+    }
+
+    if (rio_readn(*clientfd, res, sizeof(response_t)) <= 0) {
+        printf("Erreur lors de la lecture de la reponse du nouvel esclave.\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+
+
+void response(int *clientfd, char *filename,char *host,request_t req) {
     response_t res;
     double speed=0.0;
     struct timeval start , end;
     char *contenu_f_lu;
     
     
-    
-    
+    int essais = 0;
     ssize_t r;
     size_t total = 0;
     gettimeofday(&start, NULL);//on commence le temps
-     r = rio_readn(clientfd, &res, sizeof(response_t));//on lit la reponse une premiere fois pour gere les erreurs
-        if(r<0){
-            printf("erreur de connexion au debut\n");
+    r = rio_readn(*clientfd, &res, sizeof(response_t));//on lit la reponse une premiere fois pour gere les erreurs
+        
+        while (r <= 0 && essais < NB_SLAVES) {
+            if (reconnect_to_slave(clientfd, host, filename, &req, &res) == 0) {
+                break;
+            }
+            essais++;
+        }
+
+        if (essais == NB_SLAVES) {
+            printf("Impossible de trouver un esclave disponible.\n");
+            
             return;
         }
-        printf("je lit du server %d\n",res.block_size);
-
+        
+    
         if(res.status==M){
             printf("erreur : probleme d'allocation du buffer\n");
             return;
@@ -39,17 +108,22 @@ void response(int clientfd, char *filename) {
             printf("Erreur : le fichier '%s' n'existe pas sur le serveur\n", filename);
             return;
         }
-        if(res.status==C){
-            printf("Erreur de connexion\n");
+        //cas ou le client a crash pendant le transfert, on peut continuer a partir de la ou on s'est arreter grace a l'offset
+        essais = 0;
+        while (res.status==C && essais < NB_SLAVES) {
+            if (reconnect_to_slave(clientfd, host, filename, &req, &res) == 0) {
+                break;
+            }
+            essais++;
+        }
+
+        if (essais == NB_SLAVES) {
+            printf("Impossible de trouver un esclave disponible.\n");
+            
             return;
         }
-        if (r <= 0) {
-            printf("erreur de connexion\n");
-            printf("la\n");
-            return;
-        }
-        // prepa d'un fichier local pour stocker le contenu du fichier qu'on va lire 
         
+        // prepa d'un fichier local pour stocker le contenu du fichier qu'on va lire 
         int fd = Open(filename, O_WRONLY | O_CREAT | O_APPEND, 0644);
         if (fd<0) {
             perror("Erreur : ouverture du ficheir en local\n");
@@ -63,23 +137,43 @@ void response(int clientfd, char *filename) {
             return;
         }
         
-    while (1) {
-        if (res.block_size == 0) {//fichier complet d'apres le protocol
-            break;
-        }
+    while (res.block_size > 0) {
+        
 
-        r = Rio_readn(clientfd, contenu_f_lu, res.block_size);//contenue du fichier
-        if (r <= 0) {//probleme
-            printf("erreur de connexion\n");
-            break;
+        r = Rio_readn(*clientfd, contenu_f_lu, res.block_size);//contenue du fichier
+        essais = 0;
+        while (r <= 0 && essais < NB_SLAVES) {
+            if (reconnect_to_slave(clientfd, host, filename, &req, &res) == 0) {
+                r = Rio_readn(*clientfd, contenu_f_lu, res.block_size);
+                if (r > 0) {
+                    break;
+                }
+            }
+            essais++;
+        }
+        if(essais == NB_SLAVES) {
+            printf("Impossible de trouver un esclave disponible.\n");
+            free(contenu_f_lu);
+            Close(fd);
+            return;
         }
         Write(fd, contenu_f_lu, res.block_size);//ecrire dasn le fichier local
         total += res.block_size;//calcul pour la taille
-        r = Rio_readn(clientfd, &res, sizeof(response_t));//continuer a lire la reponse du serveur pour bien gerer
-        if (r <= 0) {
-        printf("erreur de connexion\n");
-        break;
-    }
+        r = Rio_readn(*clientfd, &res, sizeof(response_t));//continuer a lire la reponse du serveur pour bien gerer
+        essais = 0;
+        while (r <= 0 && essais < NB_SLAVES) {
+            if (reconnect_to_slave(clientfd, host, filename, &req, &res) == 0) {
+                r = 1; // on suppose que la lecture de la reponse a reussi apres la reconnexion, on va lire le contenu du fichier dans la prochaine iteration
+                break;
+            }
+            essais++;
+        }
+        if(essais == NB_SLAVES) {
+            printf("Impossible de trouver un esclave disponible.\n");
+            free(contenu_f_lu);
+            Close(fd);
+            return;
+        }
     }
     
     gettimeofday(&end, NULL);
@@ -101,8 +195,8 @@ void response(int clientfd, char *filename) {
 
     free(contenu_f_lu);
     Close(fd);
+    
 }
-
 
 
 
@@ -111,33 +205,15 @@ int main(int argc, char **argv)
     int clientfd;
     char *host, buf[MAXLINE];
     rio_t rio;
-
+    
     if(argc!=2){
         printf("pas le bon nb d'arguments\n");
         exit(1);
     }
     host = argv[1];
+    ssize_t r;//pour lw rio_writen 
 
-
-    printf("Connexion au Serveur Maitre (%s:%d)...\n", host, PORT_MASTER);
-    int masterfd = Open_clientfd(host, PORT_MASTER);
-    if (masterfd < 0) {
-        printf("Erreur : connection avec le serveur maitre impossible.\n");
-        exit(1);
-    }
-
-    //reception de l'information de redirection
-    redirect_t redir;
-
-    if (Rio_readn(masterfd, &redir, sizeof(redirect_t)) != sizeof(redirect_t)) {
-        printf("\nLe Serveur Maitre a rejete la connexion.\n");
-        printf("Raison probable : Tous les esclaves sont offline. Veuillez reessayer plus tard.\n\n");
-        Close(masterfd);
-        exit(1); 
-    }
-    
-    //fermeture de la connection avec le maitre
-    Close(masterfd); 
+    redirect_t redir = connection_maitre(host);
     printf("Redirection vers l'esclave %s:%d en cours...\n", redir.ip, redir.port);
 
     //connection avec l'esclave
@@ -189,8 +265,27 @@ int main(int argc, char **argv)
             }
 
 
-            Rio_writen(clientfd, &req, sizeof(request_t));
-            response(clientfd, filename);
+            r=rio_writen(clientfd, &req, sizeof(request_t));//envoi de la requete au serveur esclave
+            int essais = 0;
+            while(r<0 && essais < NB_SLAVES) {
+                printf("Erreur lors de l'envoi de la requete au serveur esclave, tentative de reconnexion...\n");
+                redir=connection_maitre(host);
+                printf("Redirection vers l'esclave %s:%d en cours...\n", redir.ip, redir.port);
+                Close(clientfd);
+                clientfd = Open_clientfd(redir.ip, redir.port);
+                if (clientfd < 0) {
+                    printf("Erreur : connection impossible avec le serveur esclave sur %d.\n", redir.port);
+                }else{
+                    r = rio_writen(clientfd, &req, sizeof(request_t));
+                }
+                essais++;
+            }
+            if (r < 0 ) {
+                printf("Impossible de contacter un esclave disponible.\n");
+                continue;
+            }
+            
+            response(&clientfd, filename,host,req);//traitement de la reponse du serveur esclave
            
         } else {
             printf("commande inconnue\n");

@@ -47,7 +47,6 @@ typedef struct {
     pid_t pid;
     char ip[16];  
     int port;
-    int fonctionne;
     int socket_fd;
 } slave_t;
 
